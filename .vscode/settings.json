@@ -42,7 +42,10 @@
         "cstddef": "cpp",
         "chrono": "cpp",
         "ctime": "cpp",
-        "ratio": "cpp"
+        "ratio": "cpp",
+        "map": "cpp",
+        "unordered_set": "cpp",
+        "sstream": "cpp"
     }
     ,
     "C_Cpp.clang_format_fallbackStyle": "{ ColumnLimit: 0 }",

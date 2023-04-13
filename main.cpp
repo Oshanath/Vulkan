@@ -653,11 +653,19 @@ class HelloTriangleApplication {
     }
   }
 
+  /*
+  We create a discriptor pool that can allocate a maximum of 2 descriptor sets, one for each frame in flight.
+  Each descriptor set can allocate 1 uniform buffer and 1 combined image sampler. This is defined in the descriptor set layout.
+  They are descriptors. We allocate them from the pool and bind them to the command buffer.
+  Then we allocate the descriptor sets from the pool, map them and keep them mapped.
+  When we want to use a descriptor set, we bind it and update the uniform buffer.
+  */
+
   void createDescriptorSetLayout() {
     VkDescriptorSetLayoutBinding uboLayoutBinding{};
     uboLayoutBinding.binding = 0;
     uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uboLayoutBinding.descriptorCount = 1;
+    uboLayoutBinding.descriptorCount = 1; // number of descriptors of this type. Can be an array of buffers
     uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     uboLayoutBinding.pImmutableSamplers = nullptr;  // Optional
 
