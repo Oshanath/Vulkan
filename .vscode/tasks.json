@@ -1,0 +1,32 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "compile_shaders",
+            "type": "shell",
+            "command": "/usr/local/bin/glslc shaders/shader.vert -o shaders/vert.spv && /usr/local/bin/glslc shaders/shader.frag -o shaders/frag.spv"
+        },
+        {
+            "label": "build",
+            "type": "shell",
+            "dependsOn":[
+                "compile_shaders"
+            ],
+            "command": "g++ -std=c++17 -O3 -g -o VulkanTest main.cpp -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi"
+        },
+        {
+            "label": "build_run",
+            "type": "shell",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "dependsOn":[
+                "build"
+            ],
+            "command": "./VulkanTest"
+        }
+    ]
+}
