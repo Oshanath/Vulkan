@@ -27,10 +27,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include "scene.h"
+
 struct Vertex {
   glm::vec3 pos;
-  glm::vec3 color;
   glm::vec2 texCoord;
+  glm::uint32 meshIndex;
 
   static VkVertexInputBindingDescription getBindingDescription() {
     VkVertexInputBindingDescription bindingDescription{};
@@ -52,19 +54,19 @@ struct Vertex {
 
     attributeDescriptions[1].binding = 0;
     attributeDescriptions[1].location = 1;
-    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[1].offset = offsetof(Vertex, color);
+    attributeDescriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(Vertex, texCoord);
 
     attributeDescriptions[2].binding = 0;
     attributeDescriptions[2].location = 2;
-    attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-    attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+    attributeDescriptions[2].format = VK_FORMAT_R32_UINT;
+    attributeDescriptions[2].offset = offsetof(Vertex, meshIndex);
 
     return attributeDescriptions;
   }
 
   bool operator==(const Vertex& other) const {
-    return pos == other.pos && color == other.color &&
+    return pos == other.pos && meshIndex == other.meshIndex &&
            texCoord == other.texCoord;
   }
 };
@@ -74,18 +76,19 @@ template <>
 struct hash<Vertex> {
   size_t operator()(Vertex const& vertex) const {
     return ((hash<glm::vec3>()(vertex.pos) ^
-             (hash<glm::vec3>()(vertex.color) << 1)) >>
+             (hash<glm::uint32_t>()(vertex.meshIndex) << 1)) >>
             1) ^
            (hash<glm::vec2>()(vertex.texCoord) << 1);
   }
 };
 }  // namespace std
 
-struct UniformBufferObject {
-  alignas(16) glm::mat4 model;
-  alignas(16) glm::mat4 view;
-  alignas(16) glm::mat4 proj;
-};
+// struct UniformBufferObject {
+//   alignas(16) glm::mat4 model;
+//   alignas(16) glm::mat4 view;
+//   alignas(16) glm::mat4 proj;
+// };
+// Uniform buffer will now contain view, projection and model matrices
 
 class HelloTriangleApplication {
  public:
@@ -101,8 +104,7 @@ class HelloTriangleApplication {
   const uint32_t WIDTH = 1800;
   const uint32_t HEIGHT = 850;
 
-  const std::string MODEL_PATH = "models/viking_room.obj";
-  const std::string TEXTURE_PATH = "textures/viking_room.png";
+  std::string TEXTURE_PATH = "textures/viking_room.png";
 
   const std::vector<const char*> validationLayers = {
       "VK_LAYER_KHRONOS_validation"};
@@ -152,14 +154,83 @@ class HelloTriangleApplication {
   VkImage depthImage;
   VkDeviceMemory depthImageMemory;
   VkImageView depthImageView;
+  uint32_t objectCount = 0;
+  Scene scene;
 
   bool framebufferResized = false;
   const int MAX_FRAMES_IN_FLIGHT = 2;
   uint32_t currentFrame = 0;
 
-  std::unordered_map<Vertex, uint32_t> uniqueVertices;
   std::vector<Vertex> vertices;
   std::vector<uint32_t> indices;
+
+  void initVulkan() {
+    createInstance();
+    createSurface();
+    pickPhysicalDevice();
+    createLogicalDevice();
+    createSwapChain();
+    createImageViews();
+    createRenderPass();
+    createDescriptorSetLayout();
+    createGraphicsPipeline();
+    createCommandPool();
+    createDepthResources();
+    createFramebuffers();
+    scene.objects.push_back(
+        Object("models/viking_room.obj", "textures/viking_room.png"));
+    loadModels();
+    createTextureImage();
+    createTextureSampler();
+    createIndexBuffer();
+    createUniformBuffers();
+    createDescriptorPool();
+    createDescriptorSets();
+    createVertexBuffer();
+    createCommandBuffers();
+    createSyncObjects();
+  }
+
+  void loadModels() {
+    for (auto& object : scene.objects) {
+      tinyobj::attrib_t attrib;
+      std::vector<tinyobj::shape_t> shapes;
+      std::vector<tinyobj::material_t> materials;
+      std::string warn, err;
+
+      if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
+                            object.modelPath.c_str())) {
+        throw std::runtime_error(warn + err);
+      }
+
+      std::unordered_map<Vertex, uint32_t> uniqueVertices;
+
+      for (const auto& shape : shapes) {
+        for (const auto& index : shape.mesh.indices) {
+          Vertex vertex{};
+
+          vertex.meshIndex = objectCount;
+
+          vertex.pos = {attrib.vertices[3 * index.vertex_index + 0],
+                        attrib.vertices[3 * index.vertex_index + 1],
+                        attrib.vertices[3 * index.vertex_index + 2]};
+
+          vertex.texCoord = {
+              attrib.texcoords[2 * index.texcoord_index + 0],
+              1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
+
+          if (uniqueVertices.count(vertex) == 0) {
+            uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+            vertices.push_back(vertex);
+          }
+
+          indices.push_back(uniqueVertices[vertex]);
+        }
+      }
+
+      objectCount++;
+    }
+  }
 
   void initWindow() {
     glfwInit();
@@ -202,67 +273,6 @@ class HelloTriangleApplication {
     }
 
     return true;
-  }
-
-  void initVulkan() {
-    createInstance();
-    createSurface();
-    pickPhysicalDevice();
-    createLogicalDevice();
-    createSwapChain();
-    createImageViews();
-    createRenderPass();
-    createDescriptorSetLayout();
-    createGraphicsPipeline();
-    createCommandPool();
-    createDepthResources();
-    createFramebuffers();
-    createTextureImage();
-    createTextureImageView();
-    createTextureSampler();
-    loadModel();
-    createIndexBuffer();
-    createUniformBuffers();
-    createDescriptorPool();
-    createDescriptorSets();
-    createVertexBuffer();
-    createCommandBuffers();
-    createSyncObjects();
-  }
-
-  void loadModel() {
-    tinyobj::attrib_t attrib;
-    std::vector<tinyobj::shape_t> shapes;
-    std::vector<tinyobj::material_t> materials;
-    std::string warn, err;
-
-    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
-                          MODEL_PATH.c_str())) {
-      throw std::runtime_error(warn + err);
-    }
-
-    for (const auto& shape : shapes) {
-      for (const auto& index : shape.mesh.indices) {
-        Vertex vertex{};
-
-        vertex.pos = {attrib.vertices[3 * index.vertex_index + 0],
-                      attrib.vertices[3 * index.vertex_index + 1],
-                      attrib.vertices[3 * index.vertex_index + 2]};
-
-        vertex.texCoord = {
-            attrib.texcoords[2 * index.texcoord_index + 0],
-            1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
-
-        vertex.color = {1.0f, 1.0f, 1.0f};
-
-        if (uniqueVertices.count(vertex) == 0) {
-          uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
-          vertices.push_back(vertex);
-        }
-
-        indices.push_back(uniqueVertices[vertex]);
-      }
-    }
   }
 
   VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates,
@@ -356,11 +366,6 @@ class HelloTriangleApplication {
     }
 
     return imageView;
-  }
-
-  void createTextureImageView() {
-    textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                                       VK_IMAGE_ASPECT_COLOR_BIT);
   }
 
   void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width,
@@ -539,6 +544,9 @@ class HelloTriangleApplication {
                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vkDestroyBuffer(device, stagingBuffer, nullptr);
     vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+    textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB,
+                                       VK_IMAGE_ASPECT_COLOR_BIT);
   }
 
   void createDescriptorSets() {
@@ -560,7 +568,7 @@ class HelloTriangleApplication {
       VkDescriptorBufferInfo bufferInfo{};
       bufferInfo.buffer = uniformBuffers[i];
       bufferInfo.offset = 0;
-      bufferInfo.range = sizeof(UniformBufferObject);
+      bufferInfo.range = sizeof(glm::mat4) * (2 + objectCount);
 
       VkDescriptorImageInfo imageInfo{};
       imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -619,24 +627,32 @@ class HelloTriangleApplication {
                      currentTime - startTime)
                      .count();
 
-    UniformBufferObject ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f),
-                            glm::vec3(0.0f, 0.0f, 1.0f));
+    // UniformBufferObject ubo{};
+    std::vector<glm::mat4> matrices(2 + objectCount);
 
-    ubo.view =
+    matrices[0] =
         glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
                     glm::vec3(0.0f, 0.0f, 1.0f));
 
-    ubo.proj = glm::perspective(
+    matrices[1] = glm::perspective(
         glm::radians(45.0f),
         swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
 
-    ubo.proj[1][1] *= -1;
-    memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+    // matrices[2] = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f),
+    //                         glm::vec3(0.0f, 0.0f, 1.0f));
+    matrices[2] =
+        glm::translate(glm::mat4(1.0f), time * glm::vec3(-0.2f, -0.2f, 0.0f));
+
+    matrices[3] =
+        glm::translate(glm::mat4(1.0f), time * glm::vec3(-0.2f, 0.0f, 0.0f));
+
+    matrices[1][1][1] *= -1;
+    memcpy(uniformBuffersMapped[currentImage], matrices.data(),
+           matrices.size() * sizeof(glm::mat4));
   }
 
   void createUniformBuffers() {
-    VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+    VkDeviceSize bufferSize = sizeof(glm::mat4) * 1000000;
 
     uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
     uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
@@ -654,18 +670,21 @@ class HelloTriangleApplication {
   }
 
   /*
-  We create a discriptor pool that can allocate a maximum of 2 descriptor sets, one for each frame in flight.
-  Each descriptor set can allocate 1 uniform buffer and 1 combined image sampler. This is defined in the descriptor set layout.
-  They are descriptors. We allocate them from the pool and bind them to the command buffer.
-  Then we allocate the descriptor sets from the pool, map them and keep them mapped.
-  When we want to use a descriptor set, we bind it and update the uniform buffer.
+  We create a discriptor pool that can allocate a maximum of 2 descriptor sets,
+  one for each frame in flight. Each descriptor set can allocate 1 uniform
+  buffer and 1 combined image sampler. This is defined in the descriptor set
+  layout. They are descriptors. We allocate them from the pool and bind them to
+  the command buffer. Then we allocate the descriptor sets from the pool, map
+  them and keep them mapped. When we want to use a descriptor set, we bind it
+  and update the uniform buffer.
   */
 
   void createDescriptorSetLayout() {
     VkDescriptorSetLayoutBinding uboLayoutBinding{};
     uboLayoutBinding.binding = 0;
     uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uboLayoutBinding.descriptorCount = 1; // number of descriptors of this type. Can be an array of buffers
+    uboLayoutBinding.descriptorCount =
+        1;  // number of descriptors of this type. Can be an array of buffers
     uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     uboLayoutBinding.pImmutableSamplers = nullptr;  // Optional
 

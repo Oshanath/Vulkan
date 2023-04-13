@@ -14,7 +14,7 @@
             "dependsOn":[
                 "compile_shaders"
             ],
-            "command": "g++ -std=c++17 -O3 -g -o VulkanTest main.cpp -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi"
+            "command": "g++ -std=c++17 -O3 -g -o VulkanTest main.cpp scene.cpp -lglfw -lvulkan -ldl -lpthread -lX11 -lXxf86vm -lXrandr -lXi"
         },
         {
             "label": "build_run",
