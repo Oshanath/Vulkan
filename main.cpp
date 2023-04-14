@@ -104,7 +104,7 @@ class HelloTriangleApplication {
   const uint32_t WIDTH = 1800;
   const uint32_t HEIGHT = 850;
 
-  std::string TEXTURE_PATH = "textures/viking_room.png";
+  // std::string TEXTURE_PATH = "textures/viking_room.png";
 
   const std::vector<const char*> validationLayers = {
       "VK_LAYER_KHRONOS_validation"};
@@ -147,9 +147,6 @@ class HelloTriangleApplication {
   std::vector<void*> uniformBuffersMapped;
   VkDescriptorPool descriptorPool;
   std::vector<VkDescriptorSet> descriptorSets;
-  VkImage textureImage;
-  VkDeviceMemory textureImageMemory;
-  VkImageView textureImageView;
   VkSampler textureSampler;
   VkImage depthImage;
   VkDeviceMemory depthImageMemory;
@@ -507,46 +504,49 @@ class HelloTriangleApplication {
   }
 
   void createTextureImage() {
-    int texWidth, texHeight, texChannels;
-    stbi_uc* pixels = stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight,
-                                &texChannels, STBI_rgb_alpha);
-    VkDeviceSize imageSize = texWidth * texHeight * 4;
+    for (auto& object : scene.objects) {
+      int texWidth, texHeight, texChannels;
+      stbi_uc* pixels = stbi_load(object.texturePath.c_str(), &texWidth, &texHeight,
+                                  &texChannels, STBI_rgb_alpha);
+      VkDeviceSize imageSize = texWidth * texHeight * 4;
 
-    if (!pixels) {
-      throw std::runtime_error("failed to load texture image!");
+      if (!pixels) {
+        throw std::runtime_error("failed to load texture image!");
+      }
+
+      VkBuffer stagingBuffer;
+      VkDeviceMemory stagingBufferMemory;
+      createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                   stagingBuffer, stagingBufferMemory);
+      void* data;
+      vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+      memcpy(data, pixels, static_cast<size_t>(imageSize));
+      vkUnmapMemory(device, stagingBufferMemory);
+      stbi_image_free(pixels);
+
+      createImage(texWidth, texHeight, VK_FORMAT_R8G8B8A8_SRGB,
+                  VK_IMAGE_TILING_OPTIMAL,
+                  VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, object.textureImage,
+                  object.textureImageMemory);
+
+      transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB,
+                            VK_IMAGE_LAYOUT_UNDEFINED,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      copyBufferToImage(stagingBuffer, textureImage,
+                        static_cast<uint32_t>(texWidth),
+                        static_cast<uint32_t>(texHeight));
+      transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      vkDestroyBuffer(device, stagingBuffer, nullptr);
+      vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+      textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB,
+                                         VK_IMAGE_ASPECT_COLOR_BIT);
     }
-
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
-    createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 stagingBuffer, stagingBufferMemory);
-    void* data;
-    vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
-    memcpy(data, pixels, static_cast<size_t>(imageSize));
-    vkUnmapMemory(device, stagingBufferMemory);
-    stbi_image_free(pixels);
-
-    createImage(
-        texWidth, texHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureImageMemory);
-
-    transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                          VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    copyBufferToImage(stagingBuffer, textureImage,
-                      static_cast<uint32_t>(texWidth),
-                      static_cast<uint32_t>(texHeight));
-    transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    vkDestroyBuffer(device, stagingBuffer, nullptr);
-    vkFreeMemory(device, stagingBufferMemory, nullptr);
-
-    textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                                       VK_IMAGE_ASPECT_COLOR_BIT);
   }
 
   void createDescriptorSets() {
@@ -1709,9 +1709,13 @@ class HelloTriangleApplication {
   void cleanup() {
     cleanupSwapChain();
     vkDestroySampler(device, textureSampler, nullptr);
-    vkDestroyImageView(device, textureImageView, nullptr);
-    vkDestroyImage(device, textureImage, nullptr);
-    vkFreeMemory(device, textureImageMemory, nullptr);
+
+    for (auto& object : scene.objects) {
+      vkDestroyImageView(device, object.textureImageView, nullptr);
+      vkDestroyImage(device, object.textureImage, nullptr);
+      vkFreeMemory(device, object.textureImageMemory, nullptr);
+    }
+
     vkDestroyBuffer(device, vertexBuffer, nullptr);
     vkFreeMemory(device, vertexBufferMemory, nullptr);
     vkDestroyBuffer(device, indexBuffer, nullptr);
