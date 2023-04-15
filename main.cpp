@@ -167,7 +167,13 @@ class HelloTriangleApplication {
   std::vector<Vertex> vertices;
   std::vector<uint32_t> indices;
 
+  void mouse_callback(GLFWwindow* window, double xpos, double ypos){
+    
+  }
+
   void initVulkan() {
+    scene.camera.position = glm::vec3(2.0f, 2.0f, 2.0f);
+    scene.camera.direction = glm::normalize(glm::vec3(-2.0f, -2.0f, -2.0f));
     scene.objects.push_back(Object("models/truck.obj", "textures/truck.png"));
     scene.objects[0].rotation = glm::quat_cast(glm::mat4_cast(
         (glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)))));
@@ -244,6 +250,7 @@ class HelloTriangleApplication {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); 
     window = glfwCreateWindow(
         WIDTH, HEIGHT, "Vulkan", nullptr,
         nullptr);  // width, height, title, which monitor, something in opengl
@@ -643,7 +650,34 @@ class HelloTriangleApplication {
     }
   }
 
+  std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::_V2::system_clock::duration> startTime = std::chrono::high_resolution_clock::now();
+
+  void processInput(GLFWwindow* window) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+      glfwSetWindowShouldClose(window, true);
+
+    
+    auto endTime = std::chrono::high_resolution_clock::now();
+    float time = std::chrono::duration<float, std::chrono::seconds::period>(
+                     endTime - startTime)
+                     .count();
+
+    const float cameraSpeed = 2.0f;  // units per second
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+      scene.camera.position += cameraSpeed * time * scene.camera.direction;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+      scene.camera.position -= cameraSpeed * time * scene.camera.direction;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+      scene.camera.position -= scene.camera.right * time * cameraSpeed;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+      scene.camera.position += scene.camera.right * time * cameraSpeed;
+
+    startTime = std::chrono::high_resolution_clock::now();
+  }
+
   void updateUniformBuffer(uint32_t currentImage) {
+    processInput(window);
+
     static auto startTime = std::chrono::high_resolution_clock::now();
 
     auto currentTime = std::chrono::high_resolution_clock::now();
@@ -653,9 +687,13 @@ class HelloTriangleApplication {
 
     std::vector<glm::mat4> matrices(2 + objectCount);
 
-    matrices[0] =
-        glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f),
-                    glm::vec3(0.0f, 0.0f, 1.0f));
+    // glm::vec3 camPosition = glm::vec3(2.0f, 2.0f, 2.0f);
+    // glm::vec3 lookPosition = glm::vec3(0.0f, 0.0f, 0.0f);
+
+    // glm::vec3 lookDirection = glm::normalize(lookPosition - camPosition);
+    // lookPosition = camPosition + lookDirection;
+
+    matrices[0] = scene.camera.getViewMatrix();
 
     matrices[1] = glm::perspective(
         glm::radians(45.0f),

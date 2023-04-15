@@ -4,6 +4,8 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include "Camera.h"
+
 #include <glm/glm.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <string>
@@ -28,6 +30,8 @@ struct Object {
 struct Scene {
  public:
   std::vector<Object> objects;
+  Camera camera;
+
 };
 
 #endif  // SCENE_H
