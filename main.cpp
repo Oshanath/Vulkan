@@ -83,13 +83,6 @@ struct hash<Vertex> {
 };
 }  // namespace std
 
-// struct UniformBufferObject {
-//   alignas(16) glm::mat4 model;
-//   alignas(16) glm::mat4 view;
-//   alignas(16) glm::mat4 proj;
-// };
-// Uniform buffer will now contain view, projection and model matrices
-
 class HelloTriangleApplication {
  public:
   void run() {
@@ -101,8 +94,8 @@ class HelloTriangleApplication {
 
  private:
   GLFWwindow* window;
-  const uint32_t WIDTH = 1800;
-  const uint32_t HEIGHT = 850;
+  const uint32_t WIDTH = 400;
+  const uint32_t HEIGHT = 300;
 
   const std::vector<const char*> validationLayers = {
       "VK_LAYER_KHRONOS_validation"};
@@ -167,19 +160,23 @@ class HelloTriangleApplication {
   std::vector<Vertex> vertices;
   std::vector<uint32_t> indices;
 
-  void mouse_callback(GLFWwindow* window, double xpos, double ypos){
-    
-  }
+  bool firstMouse = true;
+  float lastX = WIDTH / 2, lastY = HEIGHT / 2;
 
   void initVulkan() {
-    scene.camera.position = glm::vec3(2.0f, 2.0f, 2.0f);
-    scene.camera.direction = glm::normalize(glm::vec3(-2.0f, -2.0f, -2.0f));
-    scene.objects.push_back(Object("models/truck.obj", "textures/truck.png"));
-    scene.objects[0].rotation = glm::quat_cast(glm::mat4_cast(
-        (glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)))));
-    scene.objects[0].scale = glm::vec3(0.1f, 0.1f, 0.1f);
-    scene.objects.push_back(
-        Object("models/viking_room.obj", "textures/viking_room.png"));
+    scene.camera.position = glm::vec3(2.0f, 0.0f, 0.0f);
+    scene.camera.direction = glm::normalize(glm::vec3(-2.0f, 0.0f, 0.0f));
+
+    Object truck("models/truck.obj", "textures/truck.png");
+    truck.scale = glm::vec3(0.1f, 0.1f, 0.1f);
+    truck.position = glm::vec3(0.0f, 0.0f, 0.0f);
+    scene.objects.push_back(truck);
+
+    Object room("models/viking_room.obj", "textures/viking_room.png");
+    room.rotation = glm::quat_cast(glm::mat4_cast(
+        (glm::angleAxis(glm::radians(90.0f), glm::vec3(-1.0f, 0.0f, 0.0f)))));
+    room.position = glm::vec3(0.0f, 0.0f, 2.0f);
+    scene.objects.push_back(room);
 
     createInstance();
     createSurface();
@@ -250,12 +247,49 @@ class HelloTriangleApplication {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); 
     window = glfwCreateWindow(
         WIDTH, HEIGHT, "Vulkan", nullptr,
         nullptr);  // width, height, title, which monitor, something in opengl
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwSetWindowUserPointer(window, this);
+    glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+  }
+
+  static void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
+    auto app = reinterpret_cast<HelloTriangleApplication*>(
+        glfwGetWindowUserPointer(window));
+
+    if (app->firstMouse) {
+      app->lastX = xpos;
+      app->lastY = ypos;
+      app->firstMouse = false;
+    }
+
+    float xoffset = xpos - app->lastX;
+    float yoffset = app->lastY - ypos;
+    app->lastX = xpos;
+    app->lastY = ypos;
+
+    float sensitivity = 0.1f;
+    xoffset *= sensitivity;
+    yoffset *= sensitivity;
+
+    glm::vec3 newDirection = glm::normalize(
+        glm::mat3_cast(glm::angleAxis(glm::radians(xoffset),
+                                      glm::vec3(0.0f, -1.0f, 0.0f))) *
+        glm::mat3_cast(
+            glm::angleAxis(glm::radians(yoffset), app->scene.camera.right)) *
+        app->scene.camera.direction);
+
+    glm::vec3 prevForward = glm::vec3(app->scene.camera.direction.x, 0.0f,
+                                      app->scene.camera.direction.z);
+
+    bool flipped = glm::dot(prevForward, newDirection) < 0.0f;
+
+    if (!flipped) {
+      app->scene.camera.direction = newDirection;
+    }
   }
 
   static void framebufferResizeCallback(GLFWwindow* window, int width,
@@ -650,13 +684,14 @@ class HelloTriangleApplication {
     }
   }
 
-  std::chrono::time_point<std::chrono::_V2::system_clock, std::chrono::_V2::system_clock::duration> startTime = std::chrono::high_resolution_clock::now();
+  std::chrono::time_point<std::chrono::_V2::system_clock,
+                          std::chrono::_V2::system_clock::duration>
+      startTime = std::chrono::high_resolution_clock::now();
 
   void processInput(GLFWwindow* window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
       glfwSetWindowShouldClose(window, true);
 
-    
     auto endTime = std::chrono::high_resolution_clock::now();
     float time = std::chrono::duration<float, std::chrono::seconds::period>(
                      endTime - startTime)
@@ -699,10 +734,10 @@ class HelloTriangleApplication {
         glm::radians(45.0f),
         swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
 
-    scene.objects[0].position =
-        glm::vec3(0.0f, 0.0f, 0.0f) + time * glm::vec3(-0.2f, -0.2f, 0.0f);
-    scene.objects[1].position =
-        glm::vec3(0.0f, 0.0f, 0.0f) + time * glm::vec3(-0.2f, 0.0f, 0.0f);
+    // scene.objects[0].position =
+    //     glm::vec3(0.0f, 0.0f, 0.0f) + time * glm::vec3(-0.2f, -0.2f, 0.0f);
+    // scene.objects[1].position =
+    //     glm::vec3(0.0f, 0.0f, 0.0f) + time * glm::vec3(-0.2f, 0.0f, 0.0f);
 
     for (int i = 0; i < scene.objects.size(); i++) {
       matrices[2 + i] = scene.objects[i].getModelMatrix();
