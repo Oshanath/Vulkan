@@ -94,8 +94,8 @@ class HelloTriangleApplication {
 
  private:
   GLFWwindow* window;
-  const uint32_t WIDTH = 400;
-  const uint32_t HEIGHT = 300;
+  const uint32_t WIDTH = 1800;
+  const uint32_t HEIGHT = 600;
 
   const std::vector<const char*> validationLayers = {
       "VK_LAYER_KHRONOS_validation"};
@@ -167,16 +167,20 @@ class HelloTriangleApplication {
     scene.camera.position = glm::vec3(2.0f, 0.0f, 0.0f);
     scene.camera.direction = glm::normalize(glm::vec3(-2.0f, 0.0f, 0.0f));
 
-    Object truck("models/truck.obj", "textures/truck.png");
-    truck.scale = glm::vec3(0.1f, 0.1f, 0.1f);
-    truck.position = glm::vec3(0.0f, 0.0f, 0.0f);
-    scene.objects.push_back(truck);
+    // Object truck("models/truck.obj", "textures/truck.png");
+    // truck.scale = glm::vec3(0.1f, 0.1f, 0.1f);
+    // truck.position = glm::vec3(0.0f, 0.0f, 0.0f);
+    // scene.objects.push_back(truck);
 
-    Object room("models/viking_room.obj", "textures/viking_room.png");
-    room.rotation = glm::quat_cast(glm::mat4_cast(
-        (glm::angleAxis(glm::radians(90.0f), glm::vec3(-1.0f, 0.0f, 0.0f)))));
-    room.position = glm::vec3(0.0f, 0.0f, 2.0f);
-    scene.objects.push_back(room);
+    // Object room("models/viking_room.obj", "textures/viking_room.png");
+    // room.rotation = glm::quat_cast(glm::mat4_cast(
+    //     (glm::angleAxis(glm::radians(90.0f), glm::vec3(-1.0f, 0.0f,
+    //     0.0f)))));
+    // room.position = glm::vec3(0.0f, 0.0f, 2.0f);
+    // scene.objects.push_back(room);
+
+    Object crate("models/crate.obj", "textures/crate.png");
+    scene.objects.push_back(crate);
 
     createInstance();
     createSurface();
@@ -706,6 +710,11 @@ class HelloTriangleApplication {
       scene.camera.position -= scene.camera.right * time * cameraSpeed;
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
       scene.camera.position += scene.camera.right * time * cameraSpeed;
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+      scene.camera.position += glm::vec3(0.0f, 1.0f, 0.0f) * time * cameraSpeed;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
+      scene.camera.position +=
+          glm::vec3(0.0f, -1.0f, 0.0f) * time * cameraSpeed;
 
     startTime = std::chrono::high_resolution_clock::now();
   }
