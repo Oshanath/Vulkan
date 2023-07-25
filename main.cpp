@@ -31,6 +31,7 @@
 
 struct Vertex {
   glm::vec3 pos;
+  glm::vec3 normal;
   glm::vec2 texCoord;
   glm::uint32 meshIndex;
 
@@ -43,9 +44,9 @@ struct Vertex {
     return bindingDescription;
   }
 
-  static std::array<VkVertexInputAttributeDescription, 3>
+  static std::array<VkVertexInputAttributeDescription, 4>
   getAttributeDescriptions() {
-    std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
+    std::array<VkVertexInputAttributeDescription, 4> attributeDescriptions{};
 
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
@@ -54,31 +55,43 @@ struct Vertex {
 
     attributeDescriptions[1].binding = 0;
     attributeDescriptions[1].location = 1;
-    attributeDescriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
-    attributeDescriptions[1].offset = offsetof(Vertex, texCoord);
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(Vertex, normal);
 
     attributeDescriptions[2].binding = 0;
     attributeDescriptions[2].location = 2;
-    attributeDescriptions[2].format = VK_FORMAT_R32_UINT;
-    attributeDescriptions[2].offset = offsetof(Vertex, meshIndex);
+    attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+
+    attributeDescriptions[3].binding = 0;
+    attributeDescriptions[3].location = 3;
+    attributeDescriptions[3].format = VK_FORMAT_R32_UINT;
+    attributeDescriptions[3].offset = offsetof(Vertex, meshIndex);
 
     return attributeDescriptions;
   }
 
   bool operator==(const Vertex& other) const {
-    return pos == other.pos && meshIndex == other.meshIndex &&
-           texCoord == other.texCoord;
+    return pos == other.pos && normal == other.normal &&
+           meshIndex == other.meshIndex && texCoord == other.texCoord;
   }
+};
+
+struct LightSource {
+  glm::vec3 position;
+  glm::vec3 color;
 };
 
 namespace std {
 template <>
 struct hash<Vertex> {
   size_t operator()(Vertex const& vertex) const {
+    // get hash from position, normal, texcoord and meshIndex
     return ((hash<glm::vec3>()(vertex.pos) ^
-             (hash<glm::uint32_t>()(vertex.meshIndex) << 1)) >>
+             (hash<glm::vec3>()(vertex.normal) << 1)) >>
             1) ^
-           (hash<glm::vec2>()(vertex.texCoord) << 1);
+           (hash<glm::vec2>()(vertex.texCoord) << 1) ^
+           (hash<glm::uint32>()(vertex.meshIndex) << 1);
   }
 };
 }  // namespace std
@@ -110,12 +123,16 @@ class HelloTriangleApplication {
 
   bool framebufferResized = false;
   const int MAX_FRAMES_IN_FLIGHT = 2;
-  const int DESCRIPTOR_SET_COUNT = MAX_FRAMES_IN_FLIGHT + 1;
-  const int DESCRIPTOR_SET_LAYOUT_COUNT = 2;
+  const int DESCRIPTOR_SET_COUNT = MAX_FRAMES_IN_FLIGHT + 2;
+  const int DESCRIPTOR_SET_LAYOUT_COUNT = 3;
+  const int UNIFORM_BUFFERS_COUNT = MAX_FRAMES_IN_FLIGHT + 1;
+  const int LIGHT_SOURCES_UNIFORM_BUFFER_INDEX = MAX_FRAMES_IN_FLIGHT + 0;
   uint32_t currentFrame = 0;
   const int UBO_DESCRIPTOR_SET_LAYOUT_INDEX = 0;
   const int SAMPLER_DESCRIPTOR_SET_LAYOUT_INDEX = 1;
+  const int LIGHT_SOURCE_DESCRIPTOR_SET_LAYOUT_INDEX = 2;
   const int MAX_OBJECTS = 1000;
+  const int MAX_LIGHT_SOURCES = 1000;
 
   VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
   VkInstance instance;
@@ -180,6 +197,8 @@ class HelloTriangleApplication {
     // scene.objects.push_back(room);
 
     Object crate("models/crate.obj", "textures/crate.png");
+    crate.rotation = glm::quat_cast(glm::mat4_cast(
+        (glm::angleAxis(glm::radians(45.0f), glm::vec3(-1.0f, 0.0f, 0.0f)))));
     scene.objects.push_back(crate);
 
     createInstance();
@@ -229,6 +248,10 @@ class HelloTriangleApplication {
           vertex.pos = {attrib.vertices[3 * index.vertex_index + 0],
                         attrib.vertices[3 * index.vertex_index + 1],
                         attrib.vertices[3 * index.vertex_index + 2]};
+
+          vertex.normal = {attrib.normals[3 * index.normal_index + 0],
+                           attrib.normals[3 * index.normal_index + 1],
+                           attrib.normals[3 * index.normal_index + 2]};
 
           vertex.texCoord = {
               attrib.texcoords[2 * index.texcoord_index + 0],
@@ -612,6 +635,8 @@ class HelloTriangleApplication {
         descriptorSetLayouts[UBO_DESCRIPTOR_SET_LAYOUT_INDEX]);
     layouts.push_back(
         descriptorSetLayouts[SAMPLER_DESCRIPTOR_SET_LAYOUT_INDEX]);
+    layouts.push_back(
+        descriptorSetLayouts[LIGHT_SOURCE_DESCRIPTOR_SET_LAYOUT_INDEX]);
 
     VkDescriptorSetAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -631,7 +656,6 @@ class HelloTriangleApplication {
       bufferInfo.offset = 0;
       bufferInfo.range = sizeof(glm::mat4) * (2 + objectCount);
 
-      // std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
       VkWriteDescriptorSet descriptorWrite{};
 
       descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -664,14 +688,31 @@ class HelloTriangleApplication {
     descriptorWrite.pImageInfo = imageInfos.data();
     vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
 
-    descriptorSetsPerFrame.push_back({descriptorSets[0], descriptorSets[2]});
-    descriptorSetsPerFrame.push_back({descriptorSets[1], descriptorSets[2]});
+    VkDescriptorBufferInfo bufferInfo{};
+    bufferInfo.buffer = uniformBuffers[LIGHT_SOURCES_UNIFORM_BUFFER_INDEX];
+    bufferInfo.offset = 0;
+    bufferInfo.range = sizeof(LightSource) * MAX_LIGHT_SOURCES;
+
+    VkWriteDescriptorSet descriptorWriteLight{};
+    descriptorWriteLight.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWriteLight.dstSet = descriptorSets[MAX_FRAMES_IN_FLIGHT + 1];
+    descriptorWriteLight.dstBinding = 0;
+    descriptorWriteLight.dstArrayElement = 0;
+    descriptorWriteLight.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWriteLight.descriptorCount = 1;
+    descriptorWriteLight.pBufferInfo = &bufferInfo;
+
+    vkUpdateDescriptorSets(device, 1, &descriptorWriteLight, 0, nullptr);
+
+    descriptorSetsPerFrame.push_back({descriptorSets[0], descriptorSets[MAX_FRAMES_IN_FLIGHT + 0], descriptorSets[MAX_FRAMES_IN_FLIGHT + 1]});
+    descriptorSetsPerFrame.push_back({descriptorSets[1], descriptorSets[MAX_FRAMES_IN_FLIGHT + 0], descriptorSets[MAX_FRAMES_IN_FLIGHT + 1]});
   }
 
   void createDescriptorPool() {
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+    poolSizes[0].descriptorCount =
+        static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) + 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[1].descriptorCount = static_cast<uint32_t>(scene.objects.size());
 
@@ -760,9 +801,9 @@ class HelloTriangleApplication {
   void createUniformBuffers() {
     VkDeviceSize bufferSize = sizeof(glm::mat4) * (2 + MAX_OBJECTS);
 
-    uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-    uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-    uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+    uniformBuffers.resize(UNIFORM_BUFFERS_COUNT);
+    uniformBuffersMemory.resize(UNIFORM_BUFFERS_COUNT);
+    uniformBuffersMapped.resize(UNIFORM_BUFFERS_COUNT);
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
       createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -773,6 +814,19 @@ class HelloTriangleApplication {
       vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0,
                   &uniformBuffersMapped[i]);
     }
+
+    VkDeviceSize lightSourceBufferSize =
+        sizeof(LightSource) * MAX_LIGHT_SOURCES;
+
+    createBuffer(lightSourceBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 uniformBuffers[LIGHT_SOURCES_UNIFORM_BUFFER_INDEX],
+                 uniformBuffersMemory[LIGHT_SOURCES_UNIFORM_BUFFER_INDEX]);
+
+    vkMapMemory(device, uniformBuffersMemory[LIGHT_SOURCES_UNIFORM_BUFFER_INDEX], 0,
+                lightSourceBufferSize, 0,
+                &uniformBuffersMapped[LIGHT_SOURCES_UNIFORM_BUFFER_INDEX]);
   }
 
   /*
@@ -789,6 +843,28 @@ class HelloTriangleApplication {
     descriptorSetLayouts.resize(DESCRIPTOR_SET_LAYOUT_COUNT);
     createUBODescriptorSetLayout();
     createSamplerDescriptorSetLayout();
+    createLightSourceDescriptorSetLayout();
+  }
+
+  void createLightSourceDescriptorSetLayout() {
+    VkDescriptorSetLayoutBinding lightSourceLayoutBinding{};
+    lightSourceLayoutBinding.binding = 0;
+    lightSourceLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    lightSourceLayoutBinding.descriptorCount = 1;
+    lightSourceLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    lightSourceLayoutBinding.pImmutableSamplers = nullptr;  // Optional
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &lightSourceLayoutBinding;
+
+    if (vkCreateDescriptorSetLayout(
+            device, &layoutInfo, nullptr,
+            &descriptorSetLayouts[LIGHT_SOURCE_DESCRIPTOR_SET_LAYOUT_INDEX]) !=
+        VK_SUCCESS) {
+      throw std::runtime_error("failed to create descriptor set layout!");
+    }
   }
 
   void createUBODescriptorSetLayout() {
@@ -1853,7 +1929,7 @@ class HelloTriangleApplication {
 
     vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    for (size_t i = 0; i < UNIFORM_BUFFERS_COUNT; i++) {
       vkDestroyBuffer(device, uniformBuffers[i], nullptr);
       vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
     }
